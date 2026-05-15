@@ -1,15 +1,32 @@
 """pages/7_Map_View.py — Interactive alliance map for 2021 and 2026."""
 
 import traceback
-import requests
+import pathlib
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from components.styles import inject_css, STREAMLIT_CONFIG, top_nav
+from components.styles import inject_css, STREAMLIT_CONFIG, top_nav, render_footer
 from utils.data_loader import load_winners
 from utils.constants import PARTY_COLORS
+
+BASE_DIR = pathlib.Path(__file__).parent.parent
+CONSTITUENCY_MASTER = BASE_DIR / "data" / "raw" / "constituency_master.csv"
+
+
+@st.cache_data
+def _district_map() -> pd.DataFrame:
+    """Return ac_number → district mapping from constituency master."""
+    return pd.read_csv(CONSTITUENCY_MASTER, usecols=["ac_number", "district"])
+
+
+def enrich_with_district(winners: pd.DataFrame) -> pd.DataFrame:
+    """Add 'district' column if not already present."""
+    if "district" in winners.columns:
+        return winners
+    dm = _district_map()
+    return winners.merge(dm, on="ac_number", how="left")
 
 st.set_page_config(**STREAMLIT_CONFIG)
 inject_css()
@@ -45,6 +62,7 @@ DISTRICT_COORDS = {
     "Kallakurichi":    (11.74, 78.96),
     "Kanchipuram":     (12.84, 79.70),
     "Kanyakumari":     (8.12,  77.55),
+    "Kanniyakumari":   (8.08,  77.54),
     "Karur":           (10.96, 78.08),
     "Krishnagiri":     (12.52, 78.22),
     "Madurai":         (9.93,  78.12),
@@ -65,6 +83,7 @@ DISTRICT_COORDS = {
     "Tiruchirappalli": (10.80, 78.69),
     "Tirunelveli":     (8.73,  77.70),
     "Tirupattur":      (12.49, 78.57),
+    "Tirupur":         (11.10, 77.34),
     "Tiruvallur":      (13.14, 79.91),
     "Tiruvannamalai":  (12.23, 79.07),
     "Tiruvarur":       (10.77, 79.64),
@@ -74,16 +93,13 @@ DISTRICT_COORDS = {
 }
 
 
-@st.cache_data(ttl=3600)
-def load_geojson_tn():
-    try:
-        url = ("https://raw.githubusercontent.com/geohacker/tamil-nadu/"
-               "master/district/tamilnadu_district.geojson")
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            return r.json()
-    except Exception:
-        pass
+@st.cache_data
+def load_tn_geojson():
+    """Load locally bundled TN district GeoJSON (downloaded once)."""
+    import json
+    p = BASE_DIR / "data" / "raw" / "tn_districts.geojson"
+    if p.exists():
+        return json.loads(p.read_text())
     return None
 
 
@@ -94,6 +110,19 @@ def get_alliance(party):
 def build_district_summary(winners):
     winners = winners.copy()
     winners["alliance"] = winners["winner_party"].apply(get_alliance)
+
+    # Newer districts were carved from parent districts after 2011;
+    # the constituency master still lists them under the parent.
+    # Inherit the parent's dominant alliance so the map has no empty holes.
+    DISTRICT_PARENT = {
+        "Chengalpattu":  "Kanchipuram",
+        "Kallakurichi":  "Villupuram",
+        "Mayiladuthurai":"Nagapattinam",
+        "Ranipet":       "Vellore",
+        "Tenkasi":       "Tirunelveli",
+        "Tirupattur":    "Krishnagiri",
+    }
+
     rows = []
     for dist, grp in winners.groupby("district"):
         ally_counts = grp["alliance"].value_counts()
@@ -111,6 +140,29 @@ def build_district_summary(winners):
             "lat": lat,
             "lon": lon,
         })
+
+    # Build lookup for filled rows
+    dist_lookup = {r["district"]: r for r in rows}
+
+    # Add inherited rows for newer districts missing from data
+    for child, parent in DISTRICT_PARENT.items():
+        if child not in dist_lookup and parent in dist_lookup:
+            p = dist_lookup[parent]
+            lat, lon = DISTRICT_COORDS.get(child, (p["lat"], p["lon"]))
+            rows.append({
+                "district":    child,
+                "dominant":    p["dominant"],
+                "color":       p["color"],
+                "TVK_seats":   0,
+                "DMK_seats":   0,
+                "ADMK_seats":  0,
+                "Other_seats": 0,
+                "total_seats": 0,
+                "lat": lat,
+                "lon": lon,
+                "_inherited": True,
+            })
+
     return pd.DataFrame(rows)
 
 
@@ -121,94 +173,107 @@ def build_constituency_table(winners):
               "winner_votes","margin","winner_vote_share","reserved"]].copy()
 
 
-def make_scatter_map(dist_df, year):
-    df = dist_df.dropna(subset=["lat","lon"])
-    hover = df.apply(lambda r: (
-        f"<b>{r['district']}</b><br>"
-        f"Dominant: {r['dominant']}<br>"
-        f"TVK Alliance: {r['TVK_seats']}<br>"
-        f"DMK Alliance: {r['DMK_seats']}<br>"
-        f"AIADMK Alliance: {r['ADMK_seats']}<br>"
-        f"Others: {r['Other_seats']}<br>"
-        f"Total seats: {r['total_seats']}"
-    ), axis=1)
-    fig = go.Figure()
-    for alliance, color in ALLIANCE_COLORS.items():
-        sub = df[df["dominant"] == alliance]
-        if sub.empty:
-            continue
-        fig.add_trace(go.Scattergeo(
-            lat=sub["lat"], lon=sub["lon"],
-            mode="markers+text",
-            marker=dict(size=sub["total_seats"]*2.8, color=color,
-                        opacity=0.85, line=dict(width=1, color="#222")),
-            text=sub["district"],
-            textposition="top center",
-            textfont=dict(size=8, color="#ffffff"),
-            hovertext=hover[sub.index], hoverinfo="text",
-            name=alliance,
+def make_main_map(geojson, dist_df, year):
+    """Choropleth mapbox — only TN, no labels, hover on mouse-over."""
+    df = dist_df.copy()
+    alliance_order = ["TVK Alliance", "DMK Alliance", "AIADMK Alliance", "Others"]
+
+    # Custom hover template
+    def _hover(r):
+        header = (
+            f"<b>{r['district']}</b><br>"
+            f"<span style='color:#aaa'>Dominant:</span> <b>{r['dominant']}</b><br>"
+        )
+        if r.get("total_seats", 0) > 0:
+            body = (
+                f"TVK Alliance &nbsp;&nbsp;: {r['TVK_seats']} seats<br>"
+                f"DMK Alliance &nbsp;&nbsp;: {r['DMK_seats']} seats<br>"
+                f"AIADMK Alliance : {r['ADMK_seats']} seats<br>"
+                f"Others &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {r['Other_seats']} seats<br>"
+                f"<b>Total : {r['total_seats']} seats</b>"
+            )
+        else:
+            body = "<i style='color:#888'>Newer district — colour inherited<br>from parent district</i>"
+        return header + body
+
+    df["hover_text"] = df.apply(_hover, axis=1)
+
+    if geojson:
+        fig = px.choropleth_mapbox(
+            df,
+            geojson=geojson,
+            locations="district",
+            featureidkey="properties.district",
+            color="dominant",
+            color_discrete_map=ALLIANCE_COLORS,
+            category_orders={"dominant": alliance_order},
+            custom_data=["hover_text"],
+            mapbox_style="carto-darkmatter",
+            zoom=6.1,
+            center={"lat": 10.8, "lon": 78.65},
+            opacity=0.82,
+        )
+        fig.update_traces(
+            hovertemplate="%{customdata[0]}<extra></extra>",
+            marker_line_width=0.8,
+            marker_line_color="#1a1a1a",
+        )
+    else:
+        # Fallback: bubble scatter on dark OSM
+        df2 = df.dropna(subset=["lat", "lon"])
+        fig = go.Figure()
+        for alliance, color in ALLIANCE_COLORS.items():
+            sub = df2[df2["dominant"] == alliance]
+            if sub.empty:
+                continue
+            fig.add_trace(go.Scattermapbox(
+                lat=sub["lat"], lon=sub["lon"],
+                mode="markers",
+                marker=dict(size=sub["total_seats"] * 3.5, color=color,
+                            opacity=0.85, sizemode="diameter"),
+                hovertext=sub["hover_text"],
+                hoverinfo="text",
+                name=alliance,
+            ))
+        fig.update_layout(mapbox=dict(
+            style="open-street-map",
+            center=dict(lat=10.8, lon=78.7), zoom=6.1,
         ))
-    fig.update_geos(
-        visible=True, resolution=50, scope="asia",
-        showcountries=False, showcoastlines=True, coastlinecolor="#333",
-        showland=True, landcolor="#1a1a1a",
-        showocean=True, oceancolor="#0d0d0d",
-        projection_type="mercator",
-        center=dict(lat=10.8, lon=78.7),
-        lataxis_range=[7.5,14.0], lonaxis_range=[76.0,81.0],
-        bgcolor="#0d0d0d",
-    )
+
     fig.update_layout(
-        title=dict(text=f"{year} TN Election — Alliance Dominance by District",
-                   font=dict(color="#ffffff", size=16)),
-        template="plotly_dark", paper_bgcolor="#0d0d0d", plot_bgcolor="#0d0d0d",
-        legend=dict(title="Alliance", bgcolor="#111", bordercolor="#333",
-                    font=dict(color="#ccc")),
-        height=620, margin=dict(t=50,b=10,l=10,r=10),
+        title=dict(
+            text=f"{year} TN Election — Alliance Dominance by District",
+            font=dict(color="#ffffff", size=16),
+        ),
+        template="plotly_dark",
+        paper_bgcolor="#0d0d0d",
+        legend=dict(
+            title="Alliance",
+            bgcolor="#111",
+            bordercolor="#333",
+            borderwidth=1,
+            font=dict(color="#ccc"),
+        ),
+        hoverlabel=dict(bgcolor="#1e1e1e", font_color="#ffffff", font_size=13),
+        height=680,
+        margin=dict(t=50, b=0, l=0, r=0),
     )
-    return fig
-
-
-def make_choropleth(geojson, dist_df, year):
-    feat = geojson["features"][0]
-    props = feat["properties"]
-    name_key = None
-    for k in ("DISTRICT","district","NAME","name","DIST_NAME","dtname"):
-        if k in props:
-            name_key = k
-            break
-    if name_key is None:
-        return None
-    alliance_order = ["TVK Alliance","DMK Alliance","AIADMK Alliance","Others"]
-    color_map = {a: ALLIANCE_COLORS[a] for a in alliance_order}
-    fig = px.choropleth(
-        dist_df, geojson=geojson, locations="district",
-        featureidkey=f"properties.{name_key}",
-        color="dominant", color_discrete_map=color_map,
-        category_orders={"dominant": alliance_order},
-        hover_data={"TVK_seats":True,"DMK_seats":True,"ADMK_seats":True,
-                    "Other_seats":True,"total_seats":True,"dominant":True},
-        title=f"{year} TN Election — Alliance Dominance by District",
-    )
-    fig.update_geos(fitbounds="locations", visible=False, bgcolor="#0d0d0d")
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#0d0d0d",
-                      height=640, margin=dict(t=50,b=10,l=10,r=10))
     return fig
 
 
 # ── Main page ──────────────────────────────────────────────────────────────
 try:
-    st.title("🗺️ Map View — Alliance Distribution")
+    st.title("🗺️ Districtwise Map View")
     st.caption("District-wise alliance dominance for 2021 and 2026 elections.")
 
     year_tab = st.radio("Select election year:", ["2026","2021","Side-by-side"], horizontal=True)
 
     with st.spinner("Loading election data…"):
-        w21 = load_winners(2021)
-        w26 = load_winners(2026)
+        w21 = enrich_with_district(load_winners(2021))
+        w26 = enrich_with_district(load_winners(2026))
 
     with st.spinner("Loading map data…"):
-        geojson = load_geojson_tn()
+        geojson = load_tn_geojson()
 
     dist21 = build_district_summary(w21)
     dist26 = build_district_summary(w26)
@@ -224,14 +289,8 @@ try:
     st.markdown(f'<div style="margin:8px 0 16px;">{legend_html}</div>', unsafe_allow_html=True)
 
     def render_map(dist_df, year):
-        if geojson:
-            fig = make_choropleth(geojson, dist_df, year)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-                return
-        fig = make_scatter_map(dist_df, year)
+        fig = make_main_map(geojson, dist_df, year)
         st.plotly_chart(fig, use_container_width=True)
-        st.info("Bubble size = total seats in district. Hover for full details.")
 
     if year_tab == "2026":
         render_map(dist26, 2026)
@@ -241,13 +300,13 @@ try:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("2021")
-            f21 = make_scatter_map(dist21, 2021)
-            f21.update_layout(height=480, title=None)
+            f21 = make_main_map(geojson, dist21, 2021)
+            f21.update_layout(height=500, title=dict(text=""))
             st.plotly_chart(f21, use_container_width=True)
         with col2:
             st.subheader("2026")
-            f26 = make_scatter_map(dist26, 2026)
-            f26.update_layout(height=480, title=None)
+            f26 = make_main_map(geojson, dist26, 2026)
+            f26.update_layout(height=500, title=dict(text=""))
             st.plotly_chart(f26, use_container_width=True)
 
     st.markdown("---")
@@ -300,7 +359,4 @@ except Exception as e:
     with st.expander("Error details"):
         st.code(traceback.format_exc())
 
-st.markdown(
-    '<div class="footer">Data source: Election Commission of India | Built for AtliQ Media</div>',
-    unsafe_allow_html=True,
-)
+render_footer()

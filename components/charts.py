@@ -99,6 +99,12 @@ def region_seat_heatmap(w: pd.DataFrame, major_parties: list) -> go.Figure:
 
 def sankey_flip(flip_df: pd.DataFrame) -> go.Figure:
     """Sankey diagram showing seat flows from 2021 to 2026 parties."""
+
+    def _hex_to_rgba(hex_color: str, alpha: float = 0.55) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
     flipped = flip_df[flip_df["is_flip"]].copy()
 
     # Aggregate flows
@@ -125,7 +131,7 @@ def sankey_flip(flip_df: pd.DataFrame) -> go.Figure:
             target_indices.append(t)
             values.append(int(row["count"]))
             c = PARTY_COLORS.get(row["winner_party_2021"], "#888888")
-            link_colors.append(c + "99")
+            link_colors.append(_hex_to_rgba(c))
 
     node_colors = []
     for n in all_nodes:

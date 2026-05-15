@@ -20,47 +20,50 @@ def inject_css():
             background-color: #0d0d0d;
             color: #e0e0e0;
         }
-        [data-testid="stHeader"] { background: #111111; }
+        [data-testid="stHeader"] { display: none !important; }
+        [data-testid="stDecoration"] { display: none !important; }
         [data-testid="stSidebar"] { display: none; }
         [data-testid="collapsedControl"] { display: none; }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
-        .block-container { padding-top: 0.5rem !important; max-width: 1400px; }
+        .block-container { padding-top: 0 !important; max-width: 1400px; }
 
         /* ── Top Navigation Bar ─────────────────────────── */
         .topnav {
             background: #111111;
             border-bottom: 1px solid #222;
-            padding: 0 24px;
+            padding: 20px 16px 8px 16px;
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 0px;
             position: sticky;
             top: 0;
             z-index: 999;
             margin-bottom: 0;
+            flex-wrap: nowrap;
         }
         .topnav-logo {
             font-weight: 800;
-            font-size: 14px;
+            font-size: 13px;
             color: #ffffff;
-            margin-right: 24px;
-            letter-spacing: 1px;
+            margin-right: 12px;
+            letter-spacing: 0.5px;
             white-space: nowrap;
         }
         .topnav-logo span { color: #f5a623; }
         .nav-link {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 14px 16px;
-            font-size: 13px;
+            gap: 4px;
+            padding: 10px 11px;
+            font-size: 12.5px;
             font-weight: 500;
             color: #aaaaaa;
             text-decoration: none;
             border-bottom: 2px solid transparent;
             transition: color 0.2s, border-color 0.2s;
             cursor: pointer;
+            white-space: nowrap;
         }
         .nav-link:hover { color: #ffffff; }
         .nav-link.active { color: #ffffff; border-bottom-color: #ffffff; }
@@ -401,6 +404,19 @@ def inject_css():
     )
 
 
+def render_footer():
+    """Render the standard footer with data source and developer credit."""
+    st.markdown(
+        '<div class="footer">'
+        'Data source: Election Commission of India | Built for AtliQ Media<br>'
+        '<span style="font-size:11px;color:#666;">Designed &amp; Developed by '
+        '<a href="https://www.linkedin.com/in/saikiranudayana/" target="_blank" '
+        'style="color:#0a66c2;text-decoration:none;font-weight:600;">Saikiran Udayana</a>'
+        '</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def top_nav(active_page: str = "home"):
     """Render a top navigation bar as pure HTML – no truncation."""
     pages = [
@@ -419,16 +435,16 @@ def top_nav(active_page: str = "home"):
         active_class = " active" if key == active_page else ""
         links_html += (
             f'<a href="{url}" class="nav-link{active_class}" '
-            f'style="white-space:nowrap;">{icon}&nbsp;{label}</a>\n'
+            f'style="white-space:nowrap;">{icon}&nbsp;{label}</a>'
         )
 
-    nav_html = f"""
-    <div class="topnav" style="flex-wrap:nowrap;overflow-x:auto;">
-        <div class="topnav-logo" style="min-width:max-content;">
-            🗳️ <span style="color:#f5a623;">2026</span>&nbsp;TN&nbsp;ELECTIONS
-        </div>
-        {links_html}
-    </div>
-    """
+    nav_html = (
+        '<div class="topnav" style="flex-wrap:nowrap;overflow-x:auto;">'
+        '<div class="topnav-logo" style="min-width:max-content;">'
+        '🗳️ <span style="color:#f5a623;">2026</span>&nbsp;TN&nbsp;ELECTIONS'
+        '</div>'
+        + links_html +
+        '</div>'
+    )
     st.markdown(nav_html, unsafe_allow_html=True)
 

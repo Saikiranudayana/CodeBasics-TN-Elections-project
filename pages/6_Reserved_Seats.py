@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from components.styles import inject_css, STREAMLIT_CONFIG, top_nav
+from components.styles import inject_css, STREAMLIT_CONFIG, top_nav, render_footer
 from utils.data_loader import load_winners, load_flip_seats
 from utils.constants import PARTY_COLORS, REGION_ORDER, RESERVED_ORDER
 
@@ -136,5 +136,4 @@ except Exception as e:
     with st.expander("Report Issue"):
         st.code(traceback.format_exc())
 
-st.markdown('<div class="footer">Data source: Election Commission of India | Built for AtliQ Media</div>',
-            unsafe_allow_html=True)
+render_footer()

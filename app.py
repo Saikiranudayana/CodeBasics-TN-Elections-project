@@ -219,7 +219,9 @@ qs5.metric("Avg Margin of Victory", f"{avg_margin:,.0f}", help="Average winning 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="site-footer">
-  <p>Data sourced from Election Commission of India · Tamil Nadu CEO · For informational purposes only · 2026</p>
-  <p style="color:#222;font-size:10px;">Built with Streamlit + Plotly + LangGraph</p>
+  <p>Data sourced from Election Commission of India · For informational purposes only · 2026</p>
+  <p style="color:#555;font-size:11px;">Built with Streamlit + Plotly &nbsp;|&nbsp;
+  Designed &amp; Developed by <a href="https://www.linkedin.com/in/saikiranudayana/" target="_blank"
+  style="color:#0a66c2;text-decoration:none;font-weight:600;">Saikiran Udayana</a></p>
 </div>
 """, unsafe_allow_html=True)
