@@ -83,7 +83,7 @@ try:
         return ""
 
     delta_cols = [c for c in swing_df.columns if "Δ" in c]
-    styled = swing_df.style.applymap(color_delta, subset=delta_cols)
+    styled = swing_df.style.map(color_delta, subset=delta_cols)
     st.dataframe(styled, use_container_width=True)
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

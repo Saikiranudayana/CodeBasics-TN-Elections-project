@@ -86,7 +86,7 @@ try:
                 return "color: #f44336; font-weight: bold;"
         return ""
 
-    styled = comp_df.style.applymap(color_margin_delta, subset=["Margin Δ"])
+    styled = comp_df.style.map(color_margin_delta, subset=["Margin Δ"])
     st.dataframe(styled, use_container_width=True)
 
     # Party vote share by reserved category

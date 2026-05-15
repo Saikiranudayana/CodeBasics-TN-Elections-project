@@ -326,7 +326,7 @@ try:
                          "TVK_seats":"TVK+","DMK_seats":"DMK+","ADMK_seats":"ADMK+",
                          "Other_seats":"Others","total_seats":"Total"})
         .sort_values("Total", ascending=False)
-        .style.applymap(style_dominant, subset=["Dominant Alliance"])
+        .style.map(style_dominant, subset=["Dominant Alliance"])
     )
     st.dataframe(styled_tbl, use_container_width=True, height=500)
 
@@ -350,7 +350,7 @@ try:
         .rename(columns={"ac_number":"#","constituency":"Constituency","district":"District",
                          "winner_party":"Party","alliance":"Alliance","winner_votes":"Votes",
                          "margin":"Margin","winner_vote_share":"Vote %","reserved":"Type"})
-        .style.applymap(color_alliance, subset=["Alliance"])
+        .style.map(color_alliance, subset=["Alliance"])
     )
     st.dataframe(styled_detail, use_container_width=True, height=450)
 
