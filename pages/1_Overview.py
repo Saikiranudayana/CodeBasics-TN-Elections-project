@@ -1,5 +1,6 @@
 """pages/1_Overview.py — Full constituency results table (reference-style)."""
 
+import datetime
 import traceback
 import streamlit as st
 import pandas as pd
@@ -7,6 +8,7 @@ import pandas as pd
 from components.styles import inject_css, STREAMLIT_CONFIG, top_nav, render_footer
 from components.charts import party_seat_bar_chart, alliance_donut
 from components.drastic_detector import detect_all_drastic_changes
+from components.metrics import election_banner, metric_card
 from utils.data_loader import load_winners, load_vote_share, load_flip_seats
 from utils.constants import ALLIANCE_2021, ALLIANCE_2026, PARTY_COLORS
 
